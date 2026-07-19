@@ -1,4 +1,5 @@
-"use client"
+"use client";
+
 import InterviewContent from "@/components/InterviewContent";
 import React, { Suspense } from "react";
 

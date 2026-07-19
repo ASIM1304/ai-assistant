@@ -10,19 +10,21 @@ const axiosInstance = axios.create({
 
 // ── Request interceptor — attach token automatically ──────
 axiosInstance.interceptors.request.use(
-    (config) => {
-        // runs in browser only
-        if (typeof window !== 'undefined') {
-            const token = localStorage.getItem('token');
-            if (token) {
-                config.headers.Authorization = `Bearer ${token}`;
-            }
-        }
-        return config;
-    },
-    (error) => Promise.reject(error)
-);
+  (config) => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("token");
 
+      console.log("TOKEN:", token);
+
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 // ── Response interceptor — handle 401 globally ────────────
 axiosInstance.interceptors.response.use(
     (response) => response,

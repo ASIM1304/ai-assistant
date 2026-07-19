@@ -1,5 +1,5 @@
 const Groq = require("groq-sdk");
-const pdfjslib=require("pdfjs-dist/legacy/build/pdf.js");
+const pdfjslib = require("pdfjs-dist/legacy/build/pdf.js");
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -15,93 +15,264 @@ const DOMAINS = [
   "Database Design",
   "General",
 ];
-async function extractTextFromPDF(buffer){
-    const uint8Array = new Uint8Array(buffer);
-    const loadingTask = pdfjslib.getDocument({data: uint8Array});
-    const pdf = await loadingTask.promise;
-    let textContent = "";
-    for(let i=1;i<= pdf.numPages;i++){
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const strings = content.items.map(item => item.str);
-        textContent += strings.join(" ") + "\n";
-    }
-    return textContent;
-} 
+
+async function extractTextFromPDF(buffer) {
+  const uint8Array = new Uint8Array(buffer);
+
+  const loadingTask = pdfjslib.getDocument({
+    data: uint8Array,
+  });
+
+  const pdf = await loadingTask.promise;
+
+  let textContent = "";
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+
+    const content = await page.getTextContent();
+
+    const strings = content.items.map((item) => item.str);
+
+    textContent += strings.join(" ") + "\n";
+  }
+
+  return textContent;
+}
+
 const analyzeResume = async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ error: "No file uploaded" });
-        }
-        let resumeText;
-        if (req.file.mimetype === "application/pdf") {
-            const parsed = await extractTextFromPDF(req.file.buffer);
-            resumeText = parsed || "No text extracted from PDF.";
-        }else{
-            resumeText = req.file.buffer.toString("utf-8");
-        }
-        if(!resumeText || resumeText.trim().length < 50){
-            return res.status(400).json({ error: "Failed to extract text from resume" });
-        }
-        const truncated=resumeText.slice(0, 6000);
-         const prompt = `
-You are an expert technical recruiter and career coach.
-Analyze the following resume and respond ONLY with a valid JSON object. No text outside JSON.
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        error: "No file uploaded",
+      });
+    }
 
-Available interview domains: ${DOMAINS.join(", ")}
+    let resumeText = "";
 
-Resume text:
+    if (req.file.mimetype === "application/pdf") {
+      resumeText = await extractTextFromPDF(req.file.buffer);
+    } else {
+      resumeText = req.file.buffer.toString("utf-8");
+    }
+
+    if (!resumeText || resumeText.trim().length < 50) {
+      return res.status(400).json({
+        error: "Failed to extract text from resume",
+      });
+    }
+
+    const truncatedResume = resumeText.slice(0, 6000);
+
+    const prompt = `
+You are an expert AI Technical Recruiter and Career Coach.
+
+Analyze the resume carefully.
+
+Return ONLY valid JSON.
+
+Available Interview Domains:
+${DOMAINS.join(", ")}
+
+Resume:
+
 """
-${truncated}
+${truncatedResume}
 """
 
-Respond with this exact JSON structure:
+Return JSON exactly like this:
+
 {
-  "summary": "2-3 sentence professional summary of the candidate",
-  "experienceLevel": "Junior" | "Mid" | "Senior",
-  "skillsDetected": ["skill1", "skill2", "skill3", ...],
-  "strengths": ["strength1", "strength2", "strength3"],
-  "recommendedDomains": [
+  "summary":"Professional summary",
+
+  "experienceLevel":"Fresher",
+
+  "education":"Highest Qualification",
+
+  "skillsDetected":[
+    "React",
+    "Node.js"
+  ],
+
+  "projects":[
+    "Project 1",
+    "Project 2"
+  ],
+
+  "certifications":[
+    "Certification 1"
+  ],
+
+  "strengths":[
+    "Strength 1",
+    "Strength 2",
+    "Strength 3"
+  ],
+
+  "weaknesses":[
+    "Weakness 1",
+    "Weakness 2"
+  ],
+
+  "resumeScore":90,
+
+  "recommendedCompanies":[
+    "Google",
+    "Microsoft",
+    "Amazon"
+  ],
+
+  "recommendedRoles":[
+    "Frontend Developer",
+    "Full Stack Developer"
+  ],
+
+  "recommendedDomains":[
     {
-      "label": "exact domain name from the available list",
-      "reason": "one sentence why this domain fits them",
-      "confidence": 85
+      "label":"React",
+      "reason":"Candidate has strong React skills",
+      "confidence":95
     }
   ]
 }
 
-Rules:
-- experienceLevel must be exactly "Junior", "Mid", or "Senior"
-- skillsDetected: list up to 12 actual skills found in the resume
-- strengths: list 3 specific professional strengths
-- recommendedDomains: recommend 3 domains ordered by best fit, confidence is 0-100
-- domain label must exactly match one from the available domains list
-- confidence scores should be realistic and different for each domain
-`.trim();
-        const response = await groq.chat.completions.create({
-            model: "llama-3.3-70b-versatile",
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.7,
-        });
-        const raw=response.choices[0].message.content|| "{}";
-        let analysis;
-        try{
-            const jsonMatch = raw.match(/\{[\s\S]*\}/);
-            analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+Rules
 
-        }catch{
-            return res.status(500).json({ error: "Failed to parse analysis result" });
-        }
-        const validDomains=DOMAINS
-        if(analysis && analysis.recommendedDomains){
-            analysis.recommendedDomains=analysis.recommendedDomains.filter(d=> validDomains.includes(d.label));
-        }
-        res.json({ analysis });
+Return ONLY JSON.
+
+experienceLevel must be one of
+
+Fresher
+
+Junior
+
+Mid
+
+Senior
+
+resumeScore must be between 0-100.
+
+Maximum 15 skills.
+
+Maximum 5 projects.
+
+Maximum 5 certifications.
+
+Maximum 5 companies.
+
+Maximum 5 roles.
+
+recommendedDomains label MUST match one of:
+
+${DOMAINS.join(", ")}
+`;
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.5,
+    });
+
+    const raw =
+      completion.choices[0].message.content || "{}";
+
+    let analysis = {};
+
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+
+      analysis = jsonMatch
+        ? JSON.parse(jsonMatch[0])
+        : {};
     } catch (error) {
-        console.error("Error analyzing resume:", error);
-        res.status(500).json({ error: "Internal server error" });
+      return res.status(500).json({
+        error: "Failed to parse AI response",
+      });
     }
-}
+
+    analysis.summary =
+      analysis.summary || "";
+
+    analysis.education =
+      analysis.education || "";
+
+    analysis.experienceLevel =
+      analysis.experienceLevel || "Fresher";
+
+    analysis.resumeScore =
+      analysis.resumeScore || 0;
+
+    analysis.skillsDetected =
+      analysis.skillsDetected || [];
+
+    analysis.projects =
+      analysis.projects || [];
+
+    analysis.certifications =
+      analysis.certifications || [];
+
+    analysis.strengths =
+      analysis.strengths || [];
+
+    analysis.weaknesses =
+      analysis.weaknesses || [];
+
+    analysis.recommendedCompanies =
+      analysis.recommendedCompanies || [];
+
+    analysis.recommendedRoles =
+      analysis.recommendedRoles || [];
+
+    analysis.recommendedDomains =
+      analysis.recommendedDomains || [];
+
+    analysis.recommendedDomains =
+      analysis.recommendedDomains.filter((item) =>
+        DOMAINS.includes(item.label)
+      );
+
+    const interviewData = {
+      company:
+        analysis.recommendedCompanies[0] || "General",
+
+      role:
+        analysis.recommendedRoles[0] ||
+        "Software Engineer",
+
+      experience:
+        analysis.experienceLevel,
+
+      skills:
+        analysis.skillsDetected,
+
+      resumeScore:
+        analysis.resumeScore,
+
+      domain:
+        analysis.recommendedDomains.length > 0
+          ? analysis.recommendedDomains[0].label
+          : "General",
+    };
+
+    return res.json({
+      success: true,
+      analysis,
+      interviewData,
+    });
+  } catch (error) {
+    console.error("Resume Analysis Error:", error);
+
+    return res.status(500).json({
+      error: "Internal Server Error",
+    });
+  }
+};
+
 module.exports = {
-    analyzeResume,
-}
+  analyzeResume,
+};

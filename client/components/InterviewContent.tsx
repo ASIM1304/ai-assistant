@@ -21,7 +21,7 @@ interface InterviewSession {
   isComplete?: boolean;
 }
 
-const TOTAL_QUESTIONS = 3;
+const TOTAL_QUESTIONS = 10;
 
 const domainEmoji: Record<string, string> = {
   JavaScript: "🟨",
@@ -38,7 +38,20 @@ const InterviewContent = () => {
   const router = useRouter();
   const { isLoggedIn, isLoading: authLoading } = useAuth();
   const searchParams = useSearchParams();
-  const domain = searchParams.get("domain") || "General";
+  const [interviewData, setInterviewData] = useState<any>({});
+
+useEffect(() => {
+  if (typeof window !== "undefined") {
+    setInterviewData(
+      JSON.parse(localStorage.getItem("interviewData") || "{}")
+    );
+  }
+}, []);
+
+const domain =
+  interviewData.domain ||
+  searchParams.get("domain") ||
+  "General";
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
@@ -63,37 +76,59 @@ const InterviewContent = () => {
     const t = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, [isInterviewComplete]);
+
+
   const startInterview = async () => {
-    try {
-      setIsLoading(true);
-      const { data } = await axiosInstance.post("/api/interviews/start", {
+  console.log("Starting Interview...");
+
+  try {
+    setIsLoading(true);
+
+    const { data } = await axiosInstance.post(
+      "/api/interviews/start",
+      {
         domain,
-      });
-      if (data) {
-        setSessionId(data.sessionId);
-        setQuestionsAnswered(0);
-        setMessages([
-          {
-            id: "1",
-            content: data.question || "Tell me about yourself",
-            isUser: false,
-            timestamp: new Date(),
-          },
-        ]);
+        company: interviewData.company || "General",
+        jobRole: interviewData.role || "Software Engineer",
+        interviewRound: interviewData.interviewRound || "Technical",
+        experienceLevel: interviewData.experience || "Fresher",
+        resumeSkills: interviewData.skills || [],
+        resumeScore: interviewData.resumeScore || 0,
       }
-    } catch (error) {
+    );
+
+    console.log("API Response:", data);
+
+    if (data) {
+      setSessionId(data.sessionId);
+      setQuestionsAnswered(0);
+
       setMessages([
         {
           id: "1",
-          content: "Connection error.Please check your network",
+          content: data.question || "Tell me about yourself",
           isUser: false,
           timestamp: new Date(),
         },
       ]);
-    } finally {
-      setIsLoading(false);
     }
-  };
+  } catch (error: any) {
+    console.error("Start Interview Error:", error);
+    console.error("Response:", error.response);
+    console.error("Response Data:", error.response?.data);
+
+    setMessages([
+      {
+        id: "1",
+        content: "Connection error. Please check your network.",
+        isUser: false,
+        timestamp: new Date(),
+      },
+    ]);
+  } finally {
+    setIsLoading(false);
+  }
+};
   const formatTime = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
   const handleSendMessage = async (userMessage: string) => {
@@ -110,12 +145,19 @@ const InterviewContent = () => {
     setIsLoading(true);
     try {
       const { data } = await axiosInstance.post(
-        "/api/interviews/submit-answer",
-        { sessionId, answer: userMessage, domain, questionsAnswered },
-      );
+  "/api/interviews/submit-answer",
+  {
+    sessionId,
+    answer: userMessage,
+    domain,
+    questionsAnswered,
+  }
+);
       if (data) {
-        const newCount = questionsAnswered + 1;
-        setQuestionsAnswered(newCount);
+    
+        setQuestionsAnswered(
+    data.status?.questionsAnswered || questionsAnswered + 1
+);
         setMessages((prev) => [
           ...prev,
           {
@@ -127,7 +169,7 @@ const InterviewContent = () => {
             timestamp: new Date(),
           },
         ]);
-        if (data.isComplete || newCount >= TOTAL_QUESTIONS) {
+        if (data.completed) {
           setInterviewScore(data.score || 75);
           setIsInterviewComplete(true);
         } else if (data.nextQuestion) {
@@ -158,7 +200,11 @@ const InterviewContent = () => {
       setIsLoading(false);
     }
   };
-  const handleEndInterview = () => router.push("/dashboard");
+  const handleEndInterview = () => {
+  localStorage.removeItem("interviewData");
+  localStorage.removeItem("resumeAnalysis");
+  router.push("/dashboard");
+};
   if (authLoading) return null;
   if (!isLoggedIn) return null;
   const score = interviewScore ?? 0;
@@ -215,8 +261,7 @@ const InterviewContent = () => {
                   total={TOTAL_QUESTIONS}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Question {Math.min(questionsAnswered + 1, TOTAL_QUESTIONS)} of{" "}
-                  {TOTAL_QUESTIONS}
+                  Question {questionsAnswered + 1} of {TOTAL_QUESTIONS}
                 </p>
               </div>
             )}
@@ -247,8 +292,7 @@ const InterviewContent = () => {
             <div className="sm:hidden mt-3">
               <div className="flex items-center justify-between text-xs text-muted-foreground mb-1.5">
                 <span>
-                  Q{Math.min(questionsAnswered + 1, TOTAL_QUESTIONS)} of{" "}
-                  {TOTAL_QUESTIONS}
+                  Q{questionsAnswered + 1} of {TOTAL_QUESTIONS}
                 </span>
                 <span className="font-mono">{formatTime(elapsedSeconds)}</span>
               </div>
@@ -354,19 +398,24 @@ const InterviewContent = () => {
               {/* Actions */}
               <div className="grid grid-cols-2 gap-3">
                 <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsInterviewComplete(false);
-                    setInterviewScore(null);
-                    setQuestionsAnswered(0);
-                    setMessages([]);
-                    setElapsedSeconds(0);
-                    startInterview();
-                  }}
-                  className="rounded-full border-border/60"
-                >
-                  🔄 Try Again
-                </Button>
+  variant="outline"
+  onClick={() => {
+    setIsInterviewComplete(false);
+
+    setInterviewScore(null);
+
+    setQuestionsAnswered(0);
+
+    setMessages([]);
+
+    setElapsedSeconds(0);
+
+    startInterview();
+  }}
+  className="rounded-full border-border/60"
+>
+  🔄 Try Again
+</Button>
                 <Button
                   onClick={handleEndInterview}
                   className="rounded-full bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white font-semibold"

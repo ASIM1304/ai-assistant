@@ -9,7 +9,7 @@ const { protect } = require("../middleware/auth.js");
 
 const router = express.Router();
 
-router.use(protect); // all routes require auth
+router.use(protect);
 
 router.post("/start", startInterview);
 router.post("/submit-answer", submitAnswer);

@@ -17,10 +17,32 @@ interface Interview {
 
 interface ResumeAnalysis {
   summary: string;
+
   strengths: string[];
-  recommendedDomains: { label: string; reason: string; confidence: number }[];
-  experienceLevel: "Junior" | "Mid" | "Senior";
+
+  recommendedDomains: {
+    label: string;
+    reason: string;
+    confidence: number;
+  }[];
+
+  experienceLevel: "Fresher" | "Junior" | "Mid" | "Senior";
+
   skillsDetected: string[];
+
+  education?: string;
+
+  projects?: string[];
+
+  certifications?: string[];
+
+  weaknesses?: string[];
+
+  resumeScore?: number;
+
+  recommendedCompanies?: string[];
+
+  recommendedRoles?: string[];
 }
 
 const INTERVIEW_DOMAINS = [
@@ -98,7 +120,18 @@ function ResumePanel({
         },
       );
       setAnalysis(data.analysis);
-      setStep("results");
+
+localStorage.setItem(
+  "interviewData",
+  JSON.stringify(data.interviewData)
+);
+
+localStorage.setItem(
+  "resumeAnalysis",
+  JSON.stringify(data.analysis)
+);
+
+setStep("results");
     } catch (error: any) {
       setError(error?.response?.data?.message);
       setStep("upload");
@@ -107,11 +140,15 @@ function ResumePanel({
     }
   };
   const reset = () => {
-    setFile(null);
-    setAnalysis(null);
-    setError(null);
-    setStep("upload");
-  };
+  setFile(null);
+  setAnalysis(null);
+  setError(null);
+
+  localStorage.removeItem("interviewData");
+  localStorage.removeItem("resumeAnalysis");
+
+  setStep("upload");
+};
   const levelColor = (l: string) =>
     l === "Senior"
       ? "text-purple-500"
@@ -467,8 +504,20 @@ const page = () => {
     }
   };
   const handleSelectDomain = (domain: string) => {
-    router.push(`/interview?domain=${encodeURIComponent(domain)}`);
-  };
+
+  const interviewData = JSON.parse(
+    localStorage.getItem("interviewData") || "{}"
+  );
+
+  interviewData.domain = domain;
+
+  localStorage.setItem(
+    "interviewData",
+    JSON.stringify(interviewData)
+  );
+
+  router.push("/interview");
+};
   if (authLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
