@@ -216,6 +216,73 @@ function getDifficultyBadge(level) {
       return "⚪ Unknown";
   }
 }
+
+// ======================================================
+// Domain Matching (with graceful fallbacks)
+// ======================================================
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function findQuestionsForDomain(domain) {
+  const raw = domain.trim();
+  const safe = escapeRegex(raw);
+
+  // 1. Exact match, case-insensitive
+  let questions = await Question.aggregate([
+    { $match: { domain: { $regex: `^${safe}$`, $options: "i" } } },
+    { $sample: { size: 10 } },
+  ]);
+
+  if (questions.length > 0) return questions;
+
+  // 2. Partial match, e.g. "javascript" -> "JavaScript/Node.js"
+  questions = await Question.aggregate([
+    { $match: { domain: { $regex: safe, $options: "i" } } },
+    { $sample: { size: 10 } },
+  ]);
+
+  if (questions.length > 0) return questions;
+
+  // 3. Compound domains like "JavaScript/Node.js" don't literally exist in
+  // the question bank — it stores "JavaScript" and "Node.js" separately.
+  // Split on "/" (and ",") and match ANY of the parts.
+  const parts = raw
+    .split(/[\/,]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (parts.length > 1) {
+    questions = await Question.aggregate([
+      {
+        $match: {
+          $or: parts.map((p) => ({
+            domain: { $regex: escapeRegex(p), $options: "i" },
+          })),
+        },
+      },
+      { $sample: { size: 10 } },
+    ]);
+
+    if (questions.length > 0) return questions;
+  }
+
+  // 4. Fall back to a literal "General" bucket, if one has been seeded
+  questions = await Question.aggregate([
+    { $match: { domain: { $regex: "^General$", $options: "i" } } },
+    { $sample: { size: 10 } },
+  ]);
+
+  if (questions.length > 0) return questions;
+
+  // 5. Last resort: sample from the whole bank so domains with no
+  // dedicated questions yet (Data Science, DevOps, System Design...)
+  // still work. A 404 should now only happen if the bank is fully empty.
+  questions = await Question.aggregate([{ $sample: { size: 10 } }]);
+
+  return questions;
+}
 // ======================================================
 // Start Resume Based Interview
 // ======================================================
@@ -237,6 +304,8 @@ const startInterview = async (req, res) => {
       experienceLevel = "Fresher",
 
       resumeSkills = [],
+
+      resumeScore = 0,
 
     } = req.body;
 
@@ -287,23 +356,13 @@ ask domain-based questions.
 Return ONLY the question.
 `;
 
-    const questions = await Question.aggregate([
-  {
-    $match: {
-      domain: domain,
-    },
-  },
-  {
-    $sample: {
-      size: 10,
-    },
-  },
-]);
+    const questions = await findQuestionsForDomain(domain);
 
 if (questions.length === 0) {
   return res.status(404).json({
     success: false,
-    message: "No interview questions found for this domain.",
+    message:
+      "No interview questions found for this domain, and no fallback questions exist. Please seed the question bank.",
   });
 }
 
@@ -316,6 +375,7 @@ const interview = await Interview.create({
   interviewRound,
   experienceLevel,
   resumeSkills,
+  resumeScore,
 
   questions,
   currentQuestion: 0,
@@ -624,6 +684,15 @@ function updateInterviewStatistics(
 
   interview.confidenceScore =
     evaluation.confidence;
+
+  interview.technicalScore =
+    evaluation.technicalScore;
+
+  interview.communicationScore =
+    evaluation.communicationScore;
+
+  interview.problemSolvingScore =
+    evaluation.problemSolvingScore;
 
 }
 
@@ -1139,6 +1208,12 @@ if (shouldFinishInterview(interview)) {
 
         score: interview.score,
 
+        technicalScore: interview.technicalScore,
+
+        communicationScore: interview.communicationScore,
+
+        problemSolvingScore: interview.problemSolvingScore,
+
         confidence: interview.confidenceScore,
 
         detectedSkills: interview.detectedSkills,
@@ -1150,12 +1225,32 @@ if (shouldFinishInterview(interview)) {
       });
 
     }
-       interview.currentQuestion++;
 
 let nextQuestion = null;
 
-if (interview.currentQuestion < interview.questions.length) {
-  nextQuestion = interview.questions[interview.currentQuestion].question;
+try {
+
+  // Live adaptive question: Groq sees the conversation history,
+  // current difficulty, and the answer just given, and generates
+  // a follow-up that never repeats a previously asked question.
+  nextQuestion = await generateNextQuestion({
+    interview,
+    answer,
+  });
+
+} catch (err) {
+
+  console.error("Next Question Generation Error:", err);
+
+  // Fallback: pull the next question from the pre-sampled bank
+  // so a Groq hiccup doesn't stall the interview.
+  interview.currentQuestion++;
+
+  if (interview.currentQuestion < interview.questions.length) {
+    nextQuestion = interview.questions[interview.currentQuestion].question;
+    storeQuestion(interview, nextQuestion);
+  }
+
 }
 
     interview.messages.push({
@@ -1169,13 +1264,13 @@ if (interview.currentQuestion < interview.questions.length) {
     });
 
     if (nextQuestion) {
-  interview.askedQuestions.push(nextQuestion);
 
   interview.messages.push({
     role: "ai",
     content: nextQuestion,
     timestamp: getCurrentTime(),
   });
+
 }
 
     await interview.save();
@@ -1191,6 +1286,12 @@ if (interview.currentQuestion < interview.questions.length) {
       nextQuestion,
 
       score: interview.score,
+
+      technicalScore: interview.technicalScore,
+
+      communicationScore: interview.communicationScore,
+
+      problemSolvingScore: interview.problemSolvingScore,
 
       confidence: interview.confidenceScore,
 
@@ -1368,19 +1469,20 @@ const getInterview = async (req, res) => {
 
     }
 
-    interview.hiringRecommendation =
+    // Read-only endpoint — compute derived fields for the response
+    // without persisting them (avoids overwriting concurrent writes
+    // from submitAnswer, and avoids side effects on a GET request).
+    const responseInterview = interview.toObject();
+    responseInterview.hiringRecommendation =
       generateHiringRecommendation(interview);
-
-    interview.learningPath =
+    responseInterview.learningPath =
       generateLearningPath(interview);
-
-    await interview.save();
 
     return res.json({
 
       success: true,
 
-      interview,
+      interview: responseInterview,
 
     });
 

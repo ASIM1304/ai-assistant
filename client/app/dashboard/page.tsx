@@ -8,7 +8,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 interface Interview {
-  id: string;
+  _id?: string;
+  id?: string;
   date: string;
   score: number;
   duration: number;
@@ -496,7 +497,13 @@ const page = () => {
     try {
       setDataLoading(true);
       const { data } = await axiosInstance.get("/api/interviews");
-      setIntervies(data.interviews || []);
+      const normalized = (data.interviews || []).map((iv: any) => ({
+        ...iv,
+        id: iv.id ?? iv._id,
+        topic: iv.topic ?? iv.domain ?? "General",
+        date: iv.date ?? iv.createdAt ?? null,
+      }));
+      setIntervies(normalized);
     } catch (error) {
       console.error("Failed to fetch interviews:", error);
     } finally {
@@ -750,13 +757,13 @@ const page = () => {
                 </Card>
               ) : (
                 <div>
-                  {[...filtered].reverse().map((interview) => {
+                  {[...filtered].reverse().map((interview, idx) => {
                     const meta = INTERVIEW_DOMAINS.find(
                       (d) => d.label === interview.topic,
                     );
                     return (
                       <Card
-                        key={interview.id}
+  key={interview._id ?? interview.id ?? `${interview.topic}-${idx}`}
                         className="p-5 border border-border/50 hover:border-primary/40 hover:shadow-sm transition-all group"
                       >
                         <div className="flex items-center gap-4">
@@ -773,14 +780,15 @@ const page = () => {
                             <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                               <span>
                                 📅{" "}
-                                {new Date(interview.date).toLocaleDateString(
-                                  "en-IN",
-                                  {
-                                    day: "numeric",
-                                    month: "short",
-                                    year: "numeric",
-                                  },
-                                )}
+                                {interview.date
+                                  ? new Date(
+                                      interview.date,
+                                    ).toLocaleDateString("en-IN", {
+                                      day: "numeric",
+                                      month: "short",
+                                      year: "numeric",
+                                    })
+                                  : "Unknown date"}
                               </span>
                               <span>⏱ {interview.duration} min</span>
                             </div>
