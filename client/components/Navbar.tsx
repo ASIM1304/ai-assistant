@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
@@ -15,6 +15,18 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
+  // The server has no access to localStorage, so it always renders the
+  // logged-out nav first. If we used `isLoggedIn` directly, the client's
+  // first paint could differ from the server's (once auth state hydrates
+  // from localStorage), causing a React hydration mismatch. Gating on
+  // `mounted` guarantees the first client render matches the server exactly;
+  // the switch to the real logged-in state then happens safely afterward.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const showLoggedIn = mounted && isLoggedIn;
+
   // Scroll detection
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -27,17 +39,26 @@ export function Navbar() {
     setMobileOpen(false);
   }, [pathname]);
 
-  const isActive = (path: string) => pathname === path;
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get("tab");
+
+  const isActive = (href: string) => {
+    const [hrefPath, hrefQuery] = href.split("?");
+    if (hrefPath !== pathname) return false;
+    const hrefTab = new URLSearchParams(hrefQuery).get("tab");
+    return hrefTab === currentTab; // both null (plain /dashboard) or both matching a tab value
+  };
 
   // User's first initial for avatar
   const initial = user?.name?.charAt(0).toUpperCase() ?? "U";
   const firstName = user?.name?.split(" ")[0] ?? "there";
 
-  const navLinks = isLoggedIn
+  const navLinks = showLoggedIn
     ? [
         { href: "/dashboard", label: "Dashboard", icon: "⚡" },
-        { href: "/practice", label: "Practice", icon: "🎯" },
-        { href: "/history", label: "My Sessions", icon: "📊" },
+        { href: "/dashboard?tab=practice", label: "Practice", icon: "🎯" },
+        { href: "/dashboard?tab=history", label: "My Sessions", icon: "📊" },
+        { href: "/progress", label: "Progress", icon: "📈" },
       ]
     : [
         { href: "/#features", label: "Features", icon: "✨" },
@@ -103,7 +124,7 @@ export function Navbar() {
 
           {/* ── Desktop Auth Controls ── */}
           <div className="hidden md:flex items-center gap-2">
-            {isLoggedIn ? (
+            {showLoggedIn ? (
               <>
                 {/* User pill — now shows real name initial + first name */}
                 <div className="flex items-center gap-2 bg-muted/50 border border-border/60 rounded-full pl-1.5 pr-3 py-1">
@@ -204,7 +225,7 @@ export function Navbar() {
           <div className="h-px bg-border/50 my-3" />
 
           {/* Mobile auth actions */}
-          {isLoggedIn ? (
+          {showLoggedIn ? (
             <div className="space-y-2">
               {/* User info row — real name + email from context */}
               <div className="flex items-center gap-3 px-4 py-2">
@@ -227,7 +248,7 @@ export function Navbar() {
               <div className="grid grid-cols-2 gap-2 px-1">
                 {[
                   { href: "/dashboard", label: "Dashboard", icon: "⚡" },
-                  { href: "/history", label: "History", icon: "📊" },
+                  { href: "/dashboard?tab=history", label: "History", icon: "📊" },
                 ].map((item) => (
                   <Link key={item.href} href={item.href}>
                     <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/40 hover:bg-muted/70 transition-colors">

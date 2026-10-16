@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Suspense } from "react";
 
 import { AuthProvider } from "@/context/Authcontext";
 import { Navbar } from "@/components/Navbar";
@@ -29,7 +30,9 @@ export default function RootLayout({
     <html lang="en" className={`font-sans antialiased`}>
       <body>
         <AuthProvider>
-          <Navbar />
+          <Suspense fallback={null}>
+            <Navbar />
+          </Suspense>
           {children}
         </AuthProvider>
       </body>

@@ -1,143 +1,104 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { createContext, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import axiosInstance from "@/lib/axios";
-import {
-  clearAuth,
-  getStoredUser,
-  getToken,
-  setStoredUser,
-  setToken,
-  StoredUser,
-} from "@/lib/auth";
+import { AuthUser, purgeLegacyStorage, setCsrfToken } from "@/lib/auth";
 
-// ── Types ─────────────────────────────────────────────────
 interface AuthContextValue {
-  user: StoredUser | null;
-  token: string | null;
+  user: AuthUser | null;
   isLoading: boolean;
   isLoggedIn: boolean;
+  isAdmin: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
-  logout: () => void;
+  /** Resolves with verificationRequired=true when the e-mail must be confirmed before sign-in. */
+  register: (name: string, email: string, password: string) => Promise<{ verificationRequired: boolean }>;
+  logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
-// ── Context ───────────────────────────────────────────────
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// ── Provider ──────────────────────────────────────────────
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [user, setUser] = useState<StoredUser | null>(null);
-  const [token, setTokenState] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // true on first load
-
-  // Hydrate from localStorage on mount
+  // The cookie is the source of truth: ask the server who we are.
   useEffect(() => {
-    const storedToken = getToken();
-    const storedUser = getStoredUser();
-
-    if (storedToken && storedUser) {
-      setTokenState(storedToken);
-      setUser(storedUser);
-    }
-
-    setIsLoading(false);
+    purgeLegacyStorage();
+    let cancelled = false;
+    axiosInstance
+      .get("/api/auth/me")
+      .then(({ data }) => {
+        if (cancelled) return;
+        setCsrfToken(data.csrfToken);
+        setUser(data.user);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCsrfToken(null);
+          setUser(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // ── Login ───────────────────────────────────────────────
   const login = useCallback(
     async (email: string, password: string) => {
-      setIsLoading(true);
-      try {
-        const { data } = await axiosInstance.post("/api/auth/login", {
-          email,
-          password,
-        });
-
-        setToken(data.token);
-        setStoredUser(data.user);
-        setTokenState(data.token);
-        setUser(data.user);
-
-        router.push("/dashboard");
-      } finally {
-        setIsLoading(false);
-      }
+      const { data } = await axiosInstance.post("/api/auth/login", { email, password });
+      setCsrfToken(data.csrfToken);
+      setUser(data.user);
+      router.push("/dashboard");
     },
     [router],
   );
 
-  // ── Register ────────────────────────────────────────────
   const register = useCallback(
     async (name: string, email: string, password: string) => {
-      setIsLoading(true);
-      try {
-        const { data } = await axiosInstance.post("/api/auth/register", {
-          name,
-          email,
-          password,
-        });
-
-        setToken(data.token);
-        setStoredUser(data.user);
-        setTokenState(data.token);
-        setUser(data.user);
-
-        router.push("/dashboard");
-      } finally {
-        setIsLoading(false);
-      }
+      const { data } = await axiosInstance.post("/api/auth/register", { name, email, password });
+      if (data.verificationRequired) return { verificationRequired: true };
+      setCsrfToken(data.csrfToken);
+      setUser(data.user);
+      router.push("/dashboard");
+      return { verificationRequired: false };
     },
     [router],
   );
 
-  // ── Logout ──────────────────────────────────────────────
-  const logout = useCallback(() => {
-    clearAuth();
-    setTokenState(null);
+  const logout = useCallback(async () => {
+    try {
+      await axiosInstance.post("/api/auth/logout");
+    } catch {
+      /* already logged out / offline: clear locally regardless */
+    }
+    setCsrfToken(null);
     setUser(null);
     router.push("/");
   }, [router]);
 
-  // ── Refresh user from API ───────────────────────────────
   const refreshUser = useCallback(async () => {
     try {
       const { data } = await axiosInstance.get("/api/auth/me");
-      setStoredUser(data.user);
+      setCsrfToken(data.csrfToken);
       setUser(data.user);
     } catch {
-      // token invalid — log out
-      logout();
+      setCsrfToken(null);
+      setUser(null);
     }
-  }, [logout]);
+  }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      token,
-      isLoading,
-      isLoggedIn: !!token && !!user,
-      login,
-      register,
-      logout,
-      refreshUser,
-    }),
-    [user, token, isLoading, login, register, logout, refreshUser],
+    () => ({ user, isLoading, isLoggedIn: !!user, isAdmin: user?.role === "admin", login, register, logout, refreshUser }),
+    [user, isLoading, login, register, logout, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// ── Raw context export (used by useAuth hook) ─────────────
 export { AuthContext };

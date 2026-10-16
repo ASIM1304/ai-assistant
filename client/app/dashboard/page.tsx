@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import axiosInstance from "@/lib/axios";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 interface Interview {
   id: string;
@@ -13,6 +13,8 @@ interface Interview {
   score: number;
   duration: number;
   topic: string;
+  warningCount?: number;
+  terminated?: boolean;
 }
 
 interface ResumeAnalysis {
@@ -80,6 +82,7 @@ function ResumePanel({
   };
   const handleAnalyze = async () => {
     if (!file) return;
+    if (!window.confirm("Your resume text will be sent to our AI provider (Groq) for analysis. Only the analysis is stored; the file itself is not. Continue?")) return;
     setStep("analyzing");
     setError(null);
     let idx = 0;
@@ -90,6 +93,7 @@ function ResumePanel({
     try {
       const formData = new FormData();
       formData.append("resume", file);
+      formData.append("aiConsent", "true");
       const { data } = await axiosInstance.post(
         "/api/resume/analyze",
         formData,
@@ -100,7 +104,7 @@ function ResumePanel({
       setAnalysis(data.analysis);
       setStep("results");
     } catch (error: any) {
-      setError(error?.response?.data?.message);
+      setError(error?.response?.data?.error?.message || "Could not analyse the resume. Please try again.");
       setStep("upload");
     } finally {
       clearInterval(interval);
@@ -436,8 +440,9 @@ function ResumePanel({
     </Card>
   );
 }
-const page = () => {
+const DashboardContent = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isLoggedIn, isLoading: authLoading, user } = useAuth();
   const [interviews, setIntervies] = useState<Interview[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
@@ -451,6 +456,17 @@ const page = () => {
       router.push("/login");
     }
   }, [isLoggedIn, authLoading, router]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const tab = searchParams.get("tab");
+    if (tab === "practice") {
+      setShowDomainSelector(true);
+    } else if (tab === "history") {
+      setActiveTab("history");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, searchParams]);
 
   useEffect(() => {
     if (isLoggedIn) fetchInterviews();
@@ -708,7 +724,7 @@ const page = () => {
                     return (
                       <Card
                         key={interview.id}
-                        className="p-5 border border-border/50 hover:border-primary/40 hover:shadow-sm transition-all group"
+                        onClick={() => router.push(`/reports/${interview.id}`)} role="link" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") router.push(`/reports/${interview.id}`); }} className="cursor-pointer p-5 border border-border/50 hover:border-primary/40 hover:shadow-sm transition-all group"
                       >
                         <div className="flex items-center gap-4">
                           <div className="w-11 h-11 rounded-xl bg-muted/50 border border-border/60 flex items-center justify-center text-xl flex-shrink-0 group-hover:border-primary/30 transition-colors">
@@ -720,6 +736,18 @@ const page = () => {
                                 {interview.topic}
                               </p>
                               <ScoreBadge score={interview.score} />
+                              {interview.terminated && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold bg-destructive/10 text-destructive border-destructive/20">
+                                  🛑 Ended early
+                                </span>
+                              )}
+                              {!!interview.warningCount &&
+                                !interview.terminated && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20">
+                                    ⚠️ {interview.warningCount} warning
+                                    {interview.warningCount! > 1 ? "s" : ""}
+                                  </span>
+                                )}
                             </div>
                             <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                               <span>
@@ -908,4 +936,10 @@ function MiniSparkline({ scores }: { scores: number[] }) {
     </svg>
   );
 }
-export default page;
+const DashboardPage = () => (
+  <Suspense fallback={null}>
+    <DashboardContent />
+  </Suspense>
+);
+
+export default DashboardPage;

@@ -3,19 +3,25 @@
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getToken } from "@/lib/auth";
+import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 
 export default function Home() {
   const router = useRouter();
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState(0);
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
 
   useEffect(() => {
-    if (getToken()) {
+    // Use the same auth check as the rest of the app (token AND stored
+    // user, not just a raw token). Checking token alone here caused a
+    // redirect loop: if a stray token existed without matching user data,
+    // this page would send you to /dashboard, whose stricter check would
+    // immediately bounce you back out to /login.
+    if (!authLoading && isLoggedIn) {
       router.push("/dashboard");
     }
-  }, [router]);
+  }, [authLoading, isLoggedIn, router]);
 
   // Auto-rotate testimonials
   useEffect(() => {

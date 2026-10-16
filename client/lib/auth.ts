@@ -1,49 +1,39 @@
-const TOKEN_KEY = 'token';
-const USER_KEY = 'user';
-
-export interface StoredUser {
+/**
+ * Client-side auth state.
+ *
+ * The session itself is an httpOnly cookie set by the API - JavaScript (and so
+ * any XSS) can't read it. The only thing kept here is the per-session CSRF
+ * token, in memory only (never localStorage), re-fetched from /api/auth/me on
+ * every page load.
+ */
+export interface AuthUser {
     id: string;
     name: string;
     email: string;
+    role: 'candidate' | 'admin';
+    emailVerified?: boolean;
+    profile?: {
+        phone?: string;
+        education?: { degree?: string; institution?: string; year?: number }[];
+        skills?: string[];
+        experience?: { title?: string; company?: string; years?: number; summary?: string }[];
+        selectedJobRole?: string;
+    };
 }
 
-// ── Token ─────────────────────────────────────────────────
-export const getToken = (): string | null => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem(TOKEN_KEY);
+let csrfToken: string | null = null;
+export const getCsrfToken = () => csrfToken;
+export const setCsrfToken = (t: string | null) => {
+    csrfToken = t;
 };
 
-export const setToken = (token: string): void => {
-    localStorage.setItem(TOKEN_KEY, token);
-};
-
-export const removeToken = (): void => {
-    localStorage.removeItem(TOKEN_KEY);
-};
-
-// ── User ──────────────────────────────────────────────────
-export const getStoredUser = (): StoredUser | null => {
-    if (typeof window === 'undefined') return null;
+// Clean up anything an older version of the app left behind in localStorage.
+export const purgeLegacyStorage = () => {
+    if (typeof window === 'undefined') return;
     try {
-        const raw = localStorage.getItem(USER_KEY);
-        return raw ? JSON.parse(raw) : null;
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
     } catch {
-        return null;
+        /* storage may be unavailable */
     }
 };
-
-export const setStoredUser = (user: StoredUser): void => {
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-};
-
-export const removeStoredUser = (): void => {
-    localStorage.removeItem(USER_KEY);
-};
-
-// ── Combined ──────────────────────────────────────────────
-export const clearAuth = (): void => {
-    removeToken();
-    removeStoredUser();
-};
-
-export const isAuthenticated = (): boolean => !!getToken();

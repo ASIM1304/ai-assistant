@@ -4,6 +4,7 @@ interface Message {
   content: string;
   isUser: boolean;
   timestamp: Date;
+  questionType?: "behavioral" | "coding";
 }
 interface ChatContainerProps {
   messages: Message[];
@@ -17,22 +18,35 @@ const ChatContainer = ({ messages, isLoading }: ChatContainerProps) => {
           <p>Start an interview to begin</p>
         </div>
       )}
-      {messages.map((message) => (
-        <div
-          key={message.id}
-          className={`flex ${message.isUser ? "justify-end" : "justify-start"} mb-4`}
-        >
+      {messages.map((message) => {
+        const isCodingQuestion =
+          !message.isUser && message.questionType === "coding";
+        return (
           <div
-            className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-              message.isUser
-                ? "bg-blue-500 text-white rounded-br-none"
-                : "bg-gray-200 text-gray-900 rounded-bl-none"
-            }`}
+            key={message.id}
+            className={`flex ${message.isUser ? "justify-end" : "justify-start"} mb-4`}
           >
-            <p className="text-sm">{message.content}</p>
+            <div
+              className={`${isCodingQuestion ? "max-w-md lg:max-w-lg" : "max-w-xs lg:max-w-md"} px-4 py-2 rounded-lg ${
+                message.isUser
+                  ? "bg-blue-500 text-white rounded-br-none"
+                  : "bg-gray-200 text-gray-900 rounded-bl-none"
+              }`}
+            >
+              {isCodingQuestion && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 bg-blue-100 rounded-full px-2 py-0.5 mb-1.5">
+                  🖥️ Coding Question
+                </span>
+              )}
+              <p
+                className={`text-sm ${isCodingQuestion ? "whitespace-pre-wrap" : ""}`}
+              >
+                {message.content}
+              </p>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {isLoading && (
         <div className="flex justify-start">
           <div className="bg-gray-200 text-gray-900 px-4 py-2 rounded-lg rounded-bl-none">

@@ -1,125 +1,68 @@
 "use client";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { AuthShell, Notice } from "@/components/AuthShell";
 import { useAuth } from "@/hooks/useAuth";
+import { describeError } from "@/lib/errors";
 import Link from "next/link";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
-const page = () => {
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
-  const { login, isLoading } = useAuth();
+const Page = () => {
+  const { login } = useAuth();
+  const [formData, setFormData] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
-  };
+  const [info, setInfo] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "expired") setInfo("Your session expired. Please sign in again.");
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSubmitting(true);
     try {
       await login(formData.email, formData.password);
-    } catch (error) {
-      setError("Invalid email or password. Please try again.");
+    } catch (err) {
+      setError(describeError(err, "Sign-in failed. Please try again.").message);
+    } finally {
+      setSubmitting(false);
     }
   };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-secondary px-4 py-8">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="flex justify-center mb-8">
-          <div className="w-12 h-12 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-lg">AI</span>
-          </div>
+    <AuthShell
+      title="Welcome Back"
+      subtitle="Sign in to continue your interview practice"
+      footer={
+        <>
+          <span className="text-muted-foreground">Don&apos;t have an account? </span>
+          <Link href="/register" className="text-primary font-semibold hover:underline">Create one</Link>
+        </>
+      }
+    >
+      {info && <Notice kind="info">{info}</Notice>}
+      {error && <Notice kind="error">{error}</Notice>}
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <label htmlFor="email" className="block text-sm font-semibold mb-2 text-foreground">Email Address</label>
+          <Input type="email" id="email" name="email" autoComplete="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} placeholder="you@example.com" required className="rounded-lg" />
         </div>
-
-        <Card className="p-8 border border-border/50 shadow-lg">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2 text-center">
-              Welcome Back
-            </h1>
-            <p className="text-center text-muted-foreground">
-              Sign in to continue your interview practice
-            </p>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label htmlFor="password" className="block text-sm font-semibold text-foreground">Password</label>
+            <Link href="/forgot-password" className="text-xs text-primary hover:underline">Forgot password?</Link>
           </div>
-
-          {error && (
-            <div className="mb-6 p-4 bg-destructive/10 text-destructive rounded-lg text-sm border border-destructive/20">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label
-                htmlFor="email"
-                className="block text-sm font-semibold mb-2 text-foreground"
-              >
-                Email Address
-              </label>
-              <Input
-                type="email"
-                id="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="you@example.com"
-                required
-                className="rounded-lg"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-semibold mb-2 text-foreground"
-              >
-                Password
-              </label>
-              <Input
-                type="password"
-                id="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                placeholder="••••••••"
-                required
-                className="rounded-lg"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white font-semibold rounded-full py-2 mt-6"
-            >
-              {isLoading ? "Signing In..." : "Sign In"}
-            </Button>
-          </form>
-
-          <div className="mt-6 text-center text-sm">
-            <span className="text-muted-foreground">
-              Don&apos;t have an account?{" "}
-            </span>
-            <Link
-              href="/register"
-              className="text-primary font-semibold hover:underline"
-            >
-              Create one
-            </Link>
-          </div>
-        </Card>
-
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          Protected by enterprise-grade security
-        </p>
-      </div>
-    </div>
+          <Input type="password" id="password" name="password" autoComplete="current-password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} placeholder="••••••••" required className="rounded-lg" />
+        </div>
+        <Button type="submit" disabled={submitting} className="w-full bg-gradient-to-r from-primary to-accent hover:opacity-90 text-white font-semibold rounded-full py-2 mt-2">
+          {submitting ? "Signing In..." : "Sign In"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 };
 
-export default page;
+export default Page;

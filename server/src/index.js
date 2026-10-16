@@ -1,36 +1,30 @@
-const express = require("express");
-const mongoose = require("mongoose");
-const cors = require("cors");
-const connectDB = require("./config/db.js");
-require("dotenv").config();
-const authRoutes = require("./routes/auth.js");
-const interviewRoutes = require("./routes/interview.js");
-const resumeRoutes = require("./routes/resume.js");
+const { config, validateEnv } = require("./config/env");
+const connectDB = require("./config/db");
+const { createApp } = require("./app");
+const { ensureDefaults } = require("./services/defaults");
+const { startScheduler, lifecycleSweep } = require("./services/maintenance");
 
+async function main() {
+  validateEnv(); // refuses to start with an unsafe production configuration
+  await connectDB();
+  await ensureDefaults();
+  await lifecycleSweep().catch((e) => console.error("[startup] lifecycle sweep failed:", e.message));
 
-connectDB();
-const app = express();
-app.use(
-  cors({
-    origin: "*",
-  }),
-);
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use("/api/auth", authRoutes);
-app.use("/api/interviews", interviewRoutes);
-app.use("/api/resume", resumeRoutes);
-const PORT = process.env.PORT || 5000;
+  const app = createApp();
+  const server = app.listen(config.port, () => console.log(`Server listening on port ${config.port} (${config.env})`));
+  const stopScheduler = startScheduler();
 
-app.get("/", (req, res) => {
-  res.send("Backend is running!");
+  const shutdown = (sig) => {
+    console.log(`${sig} received, shutting down`);
+    stopScheduler();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+main().catch((err) => {
+  console.error(err.isConfigError ? err.message : `Startup failed: ${err.message}`);
+  process.exit(1);
 });
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    message: err.message || "Internal server error",
-  });
-});
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on http://localhost:${PORT}`),
-);
