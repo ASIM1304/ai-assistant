@@ -1,0 +1,15 @@
+module.exports = {
+  User: require("./User"),
+  Admin: require("./Admin"),
+  Session: require("./Session"),
+  AuthToken: require("./AuthToken"),
+  Resume: require("./Resume"),
+  JobRole: require("./JobRole"),
+  QuestionCategory: require("./QuestionCategory"),
+  Settings: require("./Settings"),
+  Interview: require("./Interview"),
+  Question: require("./Question"),
+  SecurityEvent: require("./SecurityEvent"),
+  InterviewReport: require("./InterviewReport"),
+  AuditLog: require("./AuditLog"),
+};
